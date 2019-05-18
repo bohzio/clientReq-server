@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CLionExternalBuildManager">
+    <target id="edf488d9-9dc7-4c95-b96f-2c8142127fbe" name="build" projectName="clientReq-server">
+      <configuration id="2e4b43e7-483c-47c6-b66d-17a5d2c7be9b" name="build">
+        <build type="TOOL">
+          <tool actionId="Tool_External Tools_build_with_make" />
+        </build>
+        <clean type="TOOL">
+          <tool actionId="Tool_External Tools_clean_with_make" />
+        </clean>
+      </configuration>
+    </target>
+  </component>
+</project>

@@ -1,0 +1,50 @@
+[
+ {
+  "directory": "/home/mattia/Desktop/sistemi_operativi_corradi_finale/system-call/clientReq-server", 
+  "arguments": [
+   "cc", 
+   "-Wall", 
+   "-std=gnu99", 
+   "-DDEBUG", 
+   "-g", 
+   "-I./inc", 
+   "-c", 
+   "src/server.c", 
+   "-o", 
+   "src/server.o"
+  ], 
+  "file": "src/server.c"
+ }, 
+ {
+  "directory": "/home/mattia/Desktop/sistemi_operativi_corradi_finale/system-call/clientReq-server", 
+  "arguments": [
+   "cc", 
+   "-Wall", 
+   "-std=gnu99", 
+   "-DDEBUG", 
+   "-g", 
+   "-I./inc", 
+   "-c", 
+   "src/clientReq.c", 
+   "-o", 
+   "src/clientReq.o"
+  ], 
+  "file": "src/clientReq.c"
+ }, 
+ {
+  "directory": "/home/mattia/Desktop/sistemi_operativi_corradi_finale/system-call/clientReq-server", 
+  "arguments": [
+   "cc", 
+   "-Wall", 
+   "-std=gnu99", 
+   "-DDEBUG", 
+   "-g", 
+   "-I./inc", 
+   "-c", 
+   "src/errExit.c", 
+   "-o", 
+   "src/errExit.o"
+  ], 
+  "file": "src/errExit.c"
+ }
+]
