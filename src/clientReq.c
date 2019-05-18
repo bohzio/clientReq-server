@@ -10,20 +10,34 @@
 #include "request_response.h"
 #include "errExit.h"
 
-char *path2ServerFIFO = "/tmp/fifo_server";
-char *baseClientFIFO = "/tmp/fifo_client.";
+char *pathServerFifo ="/tmp/FIFOSERVER";
+char *pathClietFifo ="/tmp/CLIENTFIFO";;
 
 int main (int argc, char *argv[]) {
-    char idUser[10]; //salvo l'id dell'utente
-    char service[5]; //salvo il servizio
+
+    struct Request request;
+
     printf("Hi, I'm ClientReq program!\nPuoi scegliere uno dei seguenti servizi:\n -stampa \n -salva \n -invia \n");
 
     printf("Inserisci id utente (max 10 caratteri): ");
-    scanf("%9s", idUser);
+    scanf("%s", request.idUser);
 
     printf("Inserisci per esteso il nome del servizion desiderato: ");
-    scanf("%9s", service);
+    scanf("%s", request.service);
 
+
+    // Step-2: The client opens the server's FIFO to send a Request
+    printf("<Client> opening FIFO %s...\n", pathServerFifo);
+    int serverFIFO = open(pathServerFifo, O_WRONLY);
+    if (serverFIFO == -1)
+        errExit("open failed");
+
+
+    // Step-3: The client sends a Request through the server's FIFO
+    printf("<Client> sending ... \n");
+    if (write(serverFIFO, &request,
+              sizeof(struct Request)) != sizeof(struct Request))
+        errExit("write failed");
 
 
 

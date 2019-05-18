@@ -3,13 +3,19 @@
 
 #include <sys/types.h>
 
-struct Request {   /* Request (client --> server) */
-    pid_t cPid;    /* PID of client               */
-    int code;      /* a random number             */
+/*
+ * Request (client --> server)
+ */
+struct Request {
+    char idUser[11]; //id utente
+    char service[6]; //nome del servizio
 };
 
-struct Response {  /* Response (server --> client) */
-    int result;    /* Request.code ^ 2             */
+/*
+ * Response (server --> client)
+ */
+struct Response {
+    char hash[20]; //codice per l'uso del servizio
 };
 
 #endif
