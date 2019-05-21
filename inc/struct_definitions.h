@@ -15,7 +15,14 @@ struct Request {
  * Response (server --> client)
  */
 struct Response {
-    char hash[20]; //codice per l'uso del servizio
+    char key[50]; //codice per l'uso del servizio
+};
+
+
+struct SharedItem {
+    char idUser[11];
+    char key[50];
+    time_t timestamp;
 };
 
 #endif

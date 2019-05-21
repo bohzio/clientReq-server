@@ -25,6 +25,38 @@
    "-g", 
    "-I./inc", 
    "-c", 
+   "src/semaphore.c", 
+   "-o", 
+   "src/semaphore.o"
+  ], 
+  "file": "src/semaphore.c"
+ }, 
+ {
+  "directory": "/home/mattia/Desktop/sistemi_operativi_corradi_finale/system-call/clientReq-server", 
+  "arguments": [
+   "cc", 
+   "-Wall", 
+   "-std=gnu99", 
+   "-DDEBUG", 
+   "-g", 
+   "-I./inc", 
+   "-c", 
+   "src/shared_memory.c", 
+   "-o", 
+   "src/shared_memory.o"
+  ], 
+  "file": "src/shared_memory.c"
+ }, 
+ {
+  "directory": "/home/mattia/Desktop/sistemi_operativi_corradi_finale/system-call/clientReq-server", 
+  "arguments": [
+   "cc", 
+   "-Wall", 
+   "-std=gnu99", 
+   "-DDEBUG", 
+   "-g", 
+   "-I./inc", 
+   "-c", 
    "src/clientReq.c", 
    "-o", 
    "src/clientReq.o"
