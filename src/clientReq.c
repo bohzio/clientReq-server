@@ -11,7 +11,7 @@
 #include "errExit.h"
 
 char *pathServerFifo ="/tmp/FIFOSERVER";
-char *pathClientFifo ="/tmp/CLIENTFIFO";;
+char *basePathClientFifo ="/tmp/CLIENTFIFO.";;
 
 int clientFIFO, clientFIFO_extra;
 
@@ -19,6 +19,8 @@ int clientFIFO, clientFIFO_extra;
 int main (int argc, char *argv[]) {
 
 
+    char pathClientFifo[25];
+    sprintf(pathClientFifo,"%s%d", basePathClientFifo, getpid());
 
     printf("<CLient> Making FIFO...\n");
     // make a FIFO with the following permissions:
@@ -43,6 +45,7 @@ int main (int argc, char *argv[]) {
     printf("Inserisci per esteso il nome del servizion desiderato: ");
     scanf("%s", request.service);
 
+    request.clientPid = getpid();
 
     // Step-2: The client opens the server's FIFO to send a Request
     printf("<Client> opening FIFO %s...\n", pathServerFifo);
@@ -83,7 +86,7 @@ int main (int argc, char *argv[]) {
         } else if (bR != sizeof(struct Response) || bR == 0)
             printf("<Client> it looks like I did not receive a valid response\n");
         else{
-           printf("Il codice key è :%s\n", response.key);
+           printf("Il codice key è :%d\n", response.key);
 
 
         }

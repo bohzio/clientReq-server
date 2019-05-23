@@ -12,33 +12,34 @@
 #include "struct_definitions.h"
 #include "shared_memory.h"
 
-
-char *pathServerFifo ="/tmp/FIFOSERVER";
-char *pathClientFifo ="/tmp/CLIENTFIFO";
+char *pathServerFifo = "/tmp/FIFOSERVER";
+char *basePathClientFifo = "/tmp/CLIENTFIFO.";
+char *fileFtokPath = "/tmp/fileFTOK";
 int serverFIFO, serverFIFO_extra;
 
 int totalEntries = 10;
 
+int projid = 123;
+
 struct SharedItem *entries;
 int shmid;
-
-
 
 /**
  * Function that check if the service is ok
  * @param service
  * @return 0 if is ok 1 if is wrong
  */
-int checkRequestService(char *service){
-    if((strncmp(service, "stampa", strlen("stampa")) == 0 || strncmp(service, "salva", strlen("salva")) == 0 || strncmp(service, "invia", strlen("invia")) == 0)){
+int checkRequestService(char *service)
+{
+    if ((strncmp(service, "stampa", strlen("stampa")) == 0 || strncmp(service, "salva", strlen("salva")) == 0 || strncmp(service, "invia", strlen("invia")) == 0))
+    {
         return 0;
     }
     return 1;
 }
 
-
-
-void sigHandler(int sig){
+void sigHandler(int sig)
+{
 
     // detach the shared memory segment
     printf("<Server> detaching the shared memory segment...\n");
@@ -47,13 +48,74 @@ void sigHandler(int sig){
     // remove the shared memory segment
     printf("<Server> removing the shared memory segment...\n");
     remove_shared_memory(shmid);
-
 }
 
+void sendResponse(struct Request *request)
+{
 
+    int cont = 0;
+    char pathClientFifo[25];
+    sprintf(pathClientFifo, "%s%d", basePathClientFifo, request->clientPid);
 
+    printf("%s\n", request->idUser);
 
-int main (int argc, char *argv[]) {
+    if (checkRequestService(request->service) == 0)
+    {
+        // Step-2: The client opens the server's FIFO to send a Request
+        printf("<Server> opening FIFO %s...\n", pathClientFifo);
+        int clientFIFO = open(pathClientFifo, O_WRONLY);
+        if (clientFIFO == -1)
+            errExit("open failed");
+
+        for (int i = 0; i < totalEntries; i++)
+        {
+            if (entries[i].idUser[0] == 0)
+            {
+                //E' vuoto o è stato cancellato da processo keyserver
+                //Setto il contatore a i così poi verrà scritto in quell'elemento
+                cont = i;
+                break;
+            }
+        }
+
+        int timeStamp = time(0);
+
+        strcpy(entries[cont].idUser, request->idUser);
+        entries[cont].timestamp = timeStamp;
+
+        int stampa = 3;
+        int invia = 7;
+        int salva = 11;
+        int key = 0;
+
+        if (strcmp(request->service, "stampa") == 0)
+        {
+            key = timeStamp + stampa;
+        }
+        else if (strcmp(request->service, "salva") == 0)
+        {
+            key = timeStamp + salva;
+        }
+        else if (strcmp(request->service, "invia") == 0)
+        {
+            key = timeStamp + invia;
+        }
+
+        struct Response response;
+
+        entries[cont].key = key;
+        response.key = key;
+
+        // Step-3: The Server sends a Response through the client's FIFO
+        printf("<Server> sending ... \n");
+        if (write(clientFIFO, &response,
+                  sizeof(struct Response)) != sizeof(struct Response))
+            errExit("write failed");
+    }
+}
+
+int main(int argc, char *argv[])
+{
 
     // set of signals (N.B. it is not initialized!)
     sigset_t mySet;
@@ -68,54 +130,58 @@ int main (int argc, char *argv[]) {
     if (signal(SIGTERM, sigHandler) == SIG_ERR)
         errExit("change signal handler failed");
 
-
     printf("Hi, I'm Server program!\n");
 
+
+    int fd = open(fileFtokPath,O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+
+    key_t key = ftok(fileFtokPath,projid);
 
     // creo segmento memoria condiviso
     printf("<Server> allocating a shared memory segment");
     shmid = alloc_shared_memory(sizeof(struct SharedItem *) * totalEntries); //alloco spazio per 10 SharedItem
 
     //me lo pijo
-    entries = (struct SharedItem *) get_shared_memory(shmid,0);
-
+    entries = (struct SharedItem *)get_shared_memory(shmid, 0);
 
     //lancio processo figlio keymanager
     pid_t pid;
     pid = fork();
-    if(pid == -1)
+    if (pid == -1)
         printf("subprocess keymanager not created");
-    else if(pid == 0){
-        printf("SONO IL FIGLIOOOOOOOOOOOOOOOO\n");
-        while(1){
+    else if (pid == 0)
+    {
+        printf("<Server> creates child\n");
+        while (1)
+        {
             sleep(30);
-            printf("controllo la memoria condivisa\n");
+            printf("<Subprocess> checking shared memory\n");
             fflush(stdout); //todo studiare come funziona il fflush di preciso
 
             time_t now = time(0);
 
-            for(int i=0;i<totalEntries;i++){
+            for (int i = 0; i < totalEntries; i++)
+            {
 
-                if(entries[i].idUser[0] != 0){
+                if (entries[i].idUser[0] != 0)
+                {
 
                     double timeDiff = difftime(now, entries[i].timestamp);
-                    if(timeDiff >= 60) { // 5 minuti = 60 * 5, metto 1 minuto se non non mi passa più
+                    if (timeDiff >= 60)
+                    { // 5 minuti = 60 * 5, metto 1 minuto se non non mi passa più
                         //devo eliminare la entry
                         //settando il primo byte a 0 non viene più riconosciuta come una stringa
                         //e posso facilmente identificarla come cancellata
                         entries[i].idUser[0] = 0;
-                        entries[i].key[0] = 0;
+                        entries[i].key = 0;
                         entries[i].timestamp = 0;
                     }
 
-                    printf("%s,%s,%ld\n",entries[i].idUser,entries[i].key,entries[i].timestamp);
+                    printf("%s,%d,%ld\n", entries[i].idUser, entries[i].key, entries[i].timestamp);
                 }
-
             }
-
         }
     }
-
 
     printf("<Server> Making FIFO...\n");
     // make a FIFO with the following permissions:
@@ -125,7 +191,7 @@ int main (int argc, char *argv[]) {
     if (mkfifo(pathServerFifo, S_IRUSR | S_IWUSR | S_IWGRP) == -1)
         //errExit("mkfifo failed"); commento questa riga perchè fin che sviluppo non voglio che esca ma utilizzo quella già esistente
 
-    printf("<Server> FIFO %s created!\n", pathServerFifo);
+        printf("<Server> FIFO %s created!\n", pathServerFifo);
 
     printf("<Server> waiting for a client...\n");
     serverFIFO = open(pathServerFifo, O_RDONLY);
@@ -138,72 +204,28 @@ int main (int argc, char *argv[]) {
     if (serverFIFO_extra == -1)
         errExit("open write-only failed");
 
-    struct Request request;
     int bR = -1;
 
-    int cont = 0;
-
-    do {
+    struct Request request;
+    do
+    {
         printf("<Server> waiting for a Request...\n");
         // Read a request from the FIFO
         bR = read(serverFIFO, &request, sizeof(struct Request));
 
         // Check the number of bytes read from the FIFO
-        if (bR == -1) {
+        if (bR == -1)
+        {
             printf("<Server> it looks like the FIFO is broken\n");
-        } else if (bR != sizeof(struct Request) || bR == 0)
+        }
+        else if (bR != sizeof(struct Request) || bR == 0)
             printf("<Server> it looks like I did not receive a valid request\n");
-        else{
-            printf("%s\n", request.idUser);
-
-            if(checkRequestService(request.service) == 0){
-                // Step-2: The client opens the server's FIFO to send a Request
-                printf("<Server> opening FIFO %s...\n", pathClientFifo);
-                int clientFIFO = open(pathClientFifo, O_WRONLY);
-                if (clientFIFO == -1)
-                    errExit("open failed");
-
-
-
-
-
-
-                for(int i=0; i<totalEntries; i++){
-                    if(entries[i].idUser[0] == 0){
-                        //E' vuoto o è stato cancellato da processo keyserver
-                        //Setto il contatore a i così poi verrà scritto in quell'elemento
-                        cont = i;
-                        break;
-                    }
-                }
-
-                int timeStamp =  time(0);
-
-                char *key = malloc(sizeof(request.idUser) + sizeof(request.service) + sizeof(timeStamp));
-
-                strcpy(entries[cont].idUser, request.idUser);
-                entries[cont].timestamp = timeStamp;
-
-                sprintf(key, "%s%s%d",request.service, request.idUser ,timeStamp);
-                strcpy(entries[cont].key, key);
-
-
-                struct Response response;
-
-                strcpy(response.key,key);
-
-                // Step-3: The Server sends a Response through the client's FIFO
-                printf("<Server> sending ... \n");
-                if (write(clientFIFO, &response,
-                          sizeof(struct Response)) != sizeof(struct Response))
-                    errExit("write failed");
-            }
-
-
+        else
+        {
+            sendResponse(&request);
         }
 
     } while (bR != -1);
-
 
     return 0;
 }

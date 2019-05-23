@@ -5,6 +5,12 @@
 #include "errExit.h"
 #include "shared_memory.h"
 
+
+
+
+void init
+
+
 int alloc_shared_memory(size_t size) {
     // get, or create, a shared memory segment
     int shmid = shmget(123, size, IPC_CREAT | S_IRUSR | S_IWUSR);
@@ -34,3 +40,4 @@ void remove_shared_memory(int shmid) {
     if (shmctl(shmid, IPC_RMID, NULL) == -1)
         errExit("shmctl failed");
 }
+

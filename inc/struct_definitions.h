@@ -9,19 +9,20 @@
 struct Request {
     char idUser[11]; //id utente
     char service[6]; //nome del servizio
+    int clientPid; //pid del client
 };
 
 /*
  * Response (server --> client)
  */
 struct Response {
-    char key[50]; //codice per l'uso del servizio
+    int key; //codice per l'uso del servizio
 };
 
 
 struct SharedItem {
     char idUser[11];
-    char key[50];
+    int key;
     time_t timestamp;
 };
 
