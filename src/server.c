@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 #include <sys/sem.h>
+#include <semaphore.h>
 
 #include "errExit.h"
 #include "struct_definitions.h"
@@ -23,6 +24,9 @@ int projid = 123;
 
 struct SharedItem *entries;
 int shmid;
+int semid;
+
+pid_t pid;
 
 /**
  * Function that check if the service is ok
@@ -38,7 +42,8 @@ int checkRequestService(char *service)
     return 1;
 }
 
-void sigHandler(int sig)
+
+void sigHandler()
 {
 
     // detach the shared memory segment
@@ -46,8 +51,19 @@ void sigHandler(int sig)
     free_shared_memory(entries);
 
     // remove the shared memory segment
-    printf("<Server> removing the shared memory segment...\n");
+    printf("<Server> removing the shared memory segment[%d]...\n",shmid);
     remove_shared_memory(shmid);
+
+    printf("<Server> remove file ftok\n");
+    if (unlink(fileFtokPath) == -1){
+        errExit("Remove of file ftok failed");
+    }
+
+    kill(pid, SIGTERM);
+
+    exit(0);
+
+
 }
 
 void sendResponse(struct Request *request)
@@ -66,6 +82,9 @@ void sendResponse(struct Request *request)
         int clientFIFO = open(pathClientFifo, O_WRONLY);
         if (clientFIFO == -1)
             errExit("open failed");
+
+
+        semOp(semid, 0 , -1);
 
         for (int i = 0; i < totalEntries; i++)
         {
@@ -106,6 +125,8 @@ void sendResponse(struct Request *request)
         entries[cont].key = key;
         response.key = key;
 
+        semOp(semid, 0 , 1);
+
         // Step-3: The Server sends a Response through the client's FIFO
         printf("<Server> sending ... \n");
         if (write(clientFIFO, &response,
@@ -114,9 +135,8 @@ void sendResponse(struct Request *request)
     }
 }
 
-int main(int argc, char *argv[])
-{
 
+void setSignalHandler(){
     // set of signals (N.B. it is not initialized!)
     sigset_t mySet;
     // initialize mySet to contain all signals
@@ -129,60 +149,62 @@ int main(int argc, char *argv[])
     // set the function sigHandler as handler for the signal SIGINT
     if (signal(SIGTERM, sigHandler) == SIG_ERR)
         errExit("change signal handler failed");
+}
 
-    printf("Hi, I'm Server program!\n");
 
 
-    int fd = open(fileFtokPath,O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+key_t getKey(){
+    open(fileFtokPath,O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
 
-    key_t key = ftok(fileFtokPath,projid);
+    return ftok(fileFtokPath,projid);
+}
 
-    // creo segmento memoria condiviso
-    printf("<Server> allocating a shared memory segment");
-    shmid = alloc_shared_memory(sizeof(struct SharedItem *) * totalEntries); //alloco spazio per 10 SharedItem
 
-    //me lo pijo
-    entries = (struct SharedItem *)get_shared_memory(shmid, 0);
+void sigHandlerChild(){
+    printf("<Subprocess child> Killed\n");
+    exit(0);
+}
 
-    //lancio processo figlio keymanager
-    pid_t pid;
-    pid = fork();
-    if (pid == -1)
-        printf("subprocess keymanager not created");
-    else if (pid == 0)
+void child(){
+    if(signal(SIGTERM, sigHandlerChild) == SIG_ERR)
+        errExit("change signal handler child failed\n");
+
+
+    while (1)
     {
-        printf("<Server> creates child\n");
-        while (1)
+        sleep(30);
+        printf("<Subprocess child> checking shared memory\n");
+        fflush(stdout); //todo studiare come funziona il fflush di preciso
+
+
+        semOp(semid, 0 , -1);
+        time_t now = time(0);
+        for (int i = 0; i < totalEntries; i++)
         {
-            sleep(30);
-            printf("<Subprocess> checking shared memory\n");
-            fflush(stdout); //todo studiare come funziona il fflush di preciso
 
-            time_t now = time(0);
-
-            for (int i = 0; i < totalEntries; i++)
+            if (entries[i].idUser[0] != 0)
             {
 
-                if (entries[i].idUser[0] != 0)
-                {
-
-                    double timeDiff = difftime(now, entries[i].timestamp);
-                    if (timeDiff >= 60)
-                    { // 5 minuti = 60 * 5, metto 1 minuto se non non mi passa più
-                        //devo eliminare la entry
-                        //settando il primo byte a 0 non viene più riconosciuta come una stringa
-                        //e posso facilmente identificarla come cancellata
-                        entries[i].idUser[0] = 0;
-                        entries[i].key = 0;
-                        entries[i].timestamp = 0;
-                    }
-
-                    printf("%s,%d,%ld\n", entries[i].idUser, entries[i].key, entries[i].timestamp);
+                double timeDiff = difftime(now, entries[i].timestamp);
+                if (timeDiff >= 60)
+                { // 5 minuti = 60 * 5, metto 1 minuto se non non mi passa più
+                    //devo eliminare la entry
+                    //settando il primo byte a 0 non viene più riconosciuta come una stringa
+                    //e posso facilmente identificarla come cancellata
+                    entries[i].idUser[0] = 0;
+                    entries[i].key = 0;
+                    entries[i].timestamp = 0;
                 }
+
+                printf("%s,%d,%ld\n", entries[i].idUser, entries[i].key, entries[i].timestamp);
             }
         }
+        semOp(semid, 0 ,1);
     }
+}
 
+
+void openFIFO(){
     printf("<Server> Making FIFO...\n");
     // make a FIFO with the following permissions:
     // user:  read, write
@@ -203,6 +225,52 @@ int main(int argc, char *argv[])
     serverFIFO_extra = open(pathServerFifo, O_WRONLY);
     if (serverFIFO_extra == -1)
         errExit("open write-only failed");
+}
+
+
+int main(int argc, char *argv[])
+{
+
+    printf("Hi, I'm Server program!\n");
+
+    setSignalHandler();
+
+    key_t key = getKey();
+
+    // creo segmento memoria condiviso
+    printf("<Server> allocating a shared memory segment\n");
+
+    shmid = alloc_shared_memory(key, sizeof(struct SharedItem *) * totalEntries); //alloco spazio per 10 SharedItem
+    //me lo prendo
+    entries = (struct SharedItem *)get_shared_memory(shmid, 0);
+
+
+    semid = semget(key, 1,IPC_CREAT |  S_IRUSR | S_IWUSR);
+    if(semid == -1)
+        errExit("semget failed");
+
+    // Initialize the semaphore set
+    unsigned short semInitVal[] = {1};
+    union semun arg;
+    arg.array = semInitVal;
+
+    if (semctl(semid, 0 /*ignored*/, SETALL, arg) == -1)
+        errExit("semctl SETALL failed");
+
+
+
+    //lancio processo figlio keymanager
+    pid = fork();
+    if (pid == -1)
+        printf("subprocess keymanager not created\n");
+    else if (pid == 0)
+    {
+        printf("<Server> creates child\n");
+        child();
+    }
+
+
+    openFIFO();
 
     int bR = -1;
 

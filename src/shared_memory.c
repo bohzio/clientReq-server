@@ -8,12 +8,9 @@
 
 
 
-void init
-
-
-int alloc_shared_memory(size_t size) {
+int alloc_shared_memory(key_t key,size_t size) {
     // get, or create, a shared memory segment
-    int shmid = shmget(123, size, IPC_CREAT | S_IRUSR | S_IWUSR);
+    int shmid = shmget(key, size, IPC_CREAT | S_IRUSR | S_IWUSR);
     if (shmid == -1)
         errExit("shmget failed");
 
