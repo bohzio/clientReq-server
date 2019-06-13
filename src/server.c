@@ -33,18 +33,7 @@ int semid;
 
 pid_t pid;
 
-/**
- * Function that check if the service is ok
- * @param service
- * @return 0 ok, 1 wrong
- */
-int checkRequestService(char *service) {
-    if ((strncmp(service, "stampa", strlen("stampa")) == 0 || strncmp(service, "salva", strlen("salva")) == 0 ||
-         strncmp(service, "invia", strlen("invia")) == 0)) {
-        return 0;
-    }
-    return 1;
-}
+
 
 /**
  * Handler of the parent process
@@ -59,7 +48,22 @@ void sigParentHandler() {
     printf("<Server> removing the shared memory segment[%d]...\n", shmid);
     remove_shared_memory(shmid);
 
-    printf("<Server> remove file ftok\n");
+    printf("<Server> closing fifo...\n");
+    if(serverFIFO != 0 && close(serverFIFO) == -1)
+        errExit("close server fifo failed\n");
+
+    if(serverFIFO_extra != 0 && close(serverFIFO_extra) == -1)
+        errExit("close server fifo extra failed\n");
+
+    printf("<Server> deleting fifo...\n");
+    if(unlink(pathServerFifo) != 0)
+        errExit("unlink server fifo failed\n");
+
+    printf("<Server> deleting semaphore set...\n");
+    if(semctl(semid, 0,IPC_RMID, NULL) == -1)
+        errExit("semctl IPC_RMID failed \n");    
+
+    printf("<Server> removing file ftok\n");
     if (unlink(fileFtokPath) == -1) {
         errExit("Remove of file ftok failed");
     }
@@ -92,7 +96,7 @@ int genereteKeyService(int timestamp,char *service){
         i*=10;
     }
 
-
+    printf("la chiave generata è %d\n",serviceId * i + key);
 
     return serviceId * i + key;
 }
@@ -105,7 +109,7 @@ void sendResponse(struct Request *request) {
 
     printf("%s\n", request->idUser);
 
-    if (checkRequestService(request->service) == 0) {
+   
         // Step-2: The client opens the server's FIFO to send a Request
         printf("<Server> opening FIFO %s...\n", pathClientFifo);
         int clientFIFO = open(pathClientFifo, O_WRONLY);
@@ -129,6 +133,9 @@ void sendResponse(struct Request *request) {
         strcpy(entries[cont].idUser, request->idUser);
         entries[cont].timestamp = timeStamp;
 
+        printf("service %s\n",request->service);
+        fflush(stdout);
+
         int key = genereteKeyService(timeStamp, request->service);
 
 
@@ -144,11 +151,13 @@ void sendResponse(struct Request *request) {
         if (write(clientFIFO, &response,
                   sizeof(struct Response)) != sizeof(struct Response))
             errExit("write failed");
-    }
+    
 }
 
 
 void setSignalHandler() {
+
+    atexit(sigParentHandler);
     // set of signals not initialized
     sigset_t mySet;
     // initialize mySet to contain all signals
@@ -226,7 +235,7 @@ void openFIFO() {
     // group: write
     // other: no permission
     if (mkfifo(pathServerFifo, S_IRUSR | S_IWUSR | S_IWGRP) == -1)
-        //errExit("mkfifo failed"); commento questa riga perchè fin che sviluppo non voglio che esca ma utilizzo quella già esistente
+        errExit("mkfifo failed");
 
         printf("<Server> FIFO %s created!\n", pathServerFifo);
 
@@ -271,6 +280,7 @@ int main(int argc, char *argv[]) {
 
     key_t key = getKey();
 
+
     printf("<Server> allocating a shared memory segment\n");
 
     shmid = alloc_shared_memory(key, sizeof(struct SharedItem *) * MAXENTRIES);
@@ -279,6 +289,7 @@ int main(int argc, char *argv[]) {
 
     semid = createSemaphoreSet(key);
 
+    openFIFO();
 
     //lancio processo figlio keymanager
     pid = fork();
@@ -290,7 +301,7 @@ int main(int argc, char *argv[]) {
     }
 
 
-    openFIFO();
+
 
     int bR = -1;
 
