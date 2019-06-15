@@ -7,18 +7,17 @@
  * Request (client --> server)
  */
 struct Request {
-    char idUser[11]; //id utente
-    char service[6]; //nome del servizio
-    int clientPid; //pid del client
+    char idUser[11];
+    char service[7];
+    int clientPid;
 };
 
 /*
  * Response (server --> client)
  */
 struct Response {
-    int key; //codice per l'uso del servizio
+    int key;
 };
-
 
 struct SharedItem {
     char idUser[11];

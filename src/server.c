@@ -8,6 +8,7 @@
 #include <time.h>
 #include <sys/sem.h>
 #include <semaphore.h>
+#include <wait.h>
 
 #include "errExit.h"
 #include "struct_definitions.h"
@@ -31,56 +32,64 @@ struct SharedItem *entries;
 int shmid;
 int semid;
 
-pid_t pid;
-
+pid_t childPid;
 
 
 /**
  * Handler of the parent process
+ * there is closingHandler() mapped with atexit.
+ * In this way I can also handle runtime error closing everything
  */
 void sigParentHandler() {
-
-    // detach the shared memory segment
-    printf("<Server> detaching the shared memory segment...\n");
-    free_shared_memory(entries);
-
-    // remove the shared memory segment
-    printf("<Server> removing the shared memory segment[%d]...\n", shmid);
-    remove_shared_memory(shmid);
-
-    printf("<Server> closing fifo...\n");
-    if(serverFIFO != 0 && close(serverFIFO) == -1)
-        errExit("close server fifo failed\n");
-
-    if(serverFIFO_extra != 0 && close(serverFIFO_extra) == -1)
-        errExit("close server fifo extra failed\n");
-
-    printf("<Server> deleting fifo...\n");
-    if(unlink(pathServerFifo) != 0)
-        errExit("unlink server fifo failed\n");
-
-    printf("<Server> deleting semaphore set...\n");
-    if(semctl(semid, 0,IPC_RMID, NULL) == -1)
-        errExit("semctl IPC_RMID failed \n");    
-
-    printf("<Server> removing file ftok\n");
-    if (unlink(fileFtokPath) == -1) {
-        errExit("Remove of file ftok failed");
-    }
-
-    kill(pid, SIGTERM);
-
     exit(0);
-
-
 }
 
 
-int genereteKeyService(int timestamp,char *service){
+/**
+ * Function that close everything and kill the child
+ */
+void closingHandler() {
 
-    int key = timestamp % 10000; //get the last 4 digits
-    key = (key + rand() % 1000 + 1); //sum up a random number
 
+    if (childPid != 0) {
+        // detach the shared memory segment
+        printf("<Server> detaching the shared memory segment...\n");
+        free_shared_memory(entries);
+
+        // remove the shared memory segment
+        printf("<Server> removing the shared memory segment[%d]...\n", shmid);
+        remove_shared_memory(shmid);
+
+        printf("<Server> closing fifo...\n");
+        if (serverFIFO != 0 && close(serverFIFO) == -1)
+            errExit("close server fifo failed\n");
+
+        if (serverFIFO_extra != 0 && close(serverFIFO_extra) == -1)
+            errExit("close server fifo extra failed\n");
+
+        printf("<Server> deleting fifo...\n");
+        if (unlink(pathServerFifo) != 0)
+            errExit("unlink server fifo failed\n");
+
+        printf("<Server> deleting semaphore set...\n");
+        if (semctl(semid, 0, IPC_RMID, NULL) == -1)
+            errExit("semctl IPC_RMID failed \n");
+
+        printf("<Server> removing file ftok\n");
+        if (unlink(fileFtokPath) == -1) {
+            errExit("Remove of file ftok failed");
+        }
+
+        kill(childPid, SIGTERM);
+    }
+}
+
+/**
+ * Return  digit that represent the specific service
+ * @param service
+ * @return serviceId
+ */
+int getServiceId(char *service) {
     int serviceId = -1;
 
     if (strcmp(service, "stampa") == 0) {
@@ -90,85 +99,103 @@ int genereteKeyService(int timestamp,char *service){
     } else if (strcmp(service, "invia") == 0) {
         serviceId = INVIA;
     }
+    return serviceId;
+}
 
-    int i=1;
-    while (i<=key){
-        i*=10;
+/**
+ * Return a key where the first digit represent the service where it's allowed to be used
+ * 1xxxxx -> print
+ * 2xxxxx -> save
+ * 3xxxxx -> send
+ * @param timestamp
+ * @param service
+ * @return key
+ */
+int genereteKeyService(int timestamp, char *service) {
+    int key = timestamp % 10000; //get the last 4 digits
+    key = (key + rand() % 1000 + 1); //sum up a random number
+
+    int serviceId = getServiceId(service);
+
+    int i = 1;
+    while (i <= key) {
+        i *= 10;
     }
-
-    printf("la chiave generata è %d\n",serviceId * i + key);
 
     return serviceId * i + key;
 }
 
 void sendResponse(struct Request *request) {
 
-    int cont = 0;
+    int pos = -1;
     char pathClientFifo[25];
     sprintf(pathClientFifo, "%s%d", basePathClientFifo, request->clientPid);
 
-    printf("%s\n", request->idUser);
+    printf("Request from user -> %s\n", request->idUser);
 
-   
-        // Step-2: The client opens the server's FIFO to send a Request
-        printf("<Server> opening FIFO %s...\n", pathClientFifo);
-        int clientFIFO = open(pathClientFifo, O_WRONLY);
-        if (clientFIFO == -1)
-            errExit("open failed");
+    //Server opening client fifo
+    printf("<Server> opening FIFO %s...\n", pathClientFifo);
+    int clientFIFO = open(pathClientFifo, O_WRONLY);
+    if (clientFIFO == -1)
+        errExit("open failed");
 
 
-        semOp(semid, MUTEX, -1);
+    semOp(semid, MUTEX, -1);
 
-        for (int i = 0; i < MAXENTRIES; i++) {
-            if (entries[i].idUser[0] == 0) {
-                //E' vuoto o è stato cancellato da processo keyserver
-                //Setto il contatore a i così poi verrà scritto in quell'elemento
-                cont = i;
-                break;
-            }
+    for (int i = 0; i < MAXENTRIES; i++) {
+        //check if entries[i] is empty
+        if (entries[i].idUser[0] == 0) {
+            //save the position of the free entries
+            pos = i;
+            break;
         }
+    }
 
-        int timeStamp = time(0);
+    int timeStamp = time(0);
+    int key = genereteKeyService(timeStamp, request->service);
 
-        strcpy(entries[cont].idUser, request->idUser);
-        entries[cont].timestamp = timeStamp;
+    //Writing into shared memory if there is a free position
+    if (pos != -1) {
+        strcpy(entries[pos].idUser, request->idUser);
+        entries[pos].timestamp = timeStamp;
+        entries[pos].key = key;
+    } else
+        key = -1; //set a key that represent full memory
 
-        printf("service %s\n",request->service);
-        fflush(stdout);
+    semOp(semid, MUTEX, 1);
 
-        int key = genereteKeyService(timeStamp, request->service);
+    struct Response response;
+    response.key = key;
 
+    //The Server sends a Response through the client's FIFO
+    printf("<Server> sending ... \n");
+    if (write(clientFIFO, &response,
+              sizeof(struct Response)) != sizeof(struct Response))
+        errExit("write failed");
 
-        struct Response response;
-
-        entries[cont].key = key;
-        response.key = key;
-
-        semOp(semid, MUTEX, 1);
-
-        // Step-3: The Server sends a Response through the client's FIFO
-        printf("<Server> sending ... \n");
-        if (write(clientFIFO, &response,
-                  sizeof(struct Response)) != sizeof(struct Response))
-            errExit("write failed");
-    
 }
 
 
 void setSignalHandler() {
 
-    atexit(sigParentHandler);
+    atexit(closingHandler);
+
     // set of signals not initialized
     sigset_t mySet;
     // initialize mySet to contain all signals
     sigfillset(&mySet);
     // remove SIGTERM from mySet
     sigdelset(&mySet, SIGTERM);
+    sigdelset(&mySet, SIGCHLD);
+
     // blocking all signals but SIGTERM
     sigprocmask(SIG_SETMASK, &mySet, NULL);
 
-    // set the function sigParentHandler as handler for the signal SIGTERM
+    // set the function closingHandler as handler for the signal SIGTERM
     if (signal(SIGTERM, sigParentHandler) == SIG_ERR)
+        errExit("change signal handler failed");
+
+    if (signal(SIGCHLD, sigParentHandler) == SIG_ERR)
         errExit("change signal handler failed");
 }
 
@@ -195,6 +222,8 @@ void sigHandlerChild() {
  * Function that contains the code of the child
  */
 void child() {
+
+    printf("PID FIGLIO %d\n", getpid());
 
     if (signal(SIGTERM, sigHandlerChild) == SIG_ERR)
         errExit("change signal handler child failed\n");
@@ -237,7 +266,7 @@ void openFIFO() {
     if (mkfifo(pathServerFifo, S_IRUSR | S_IWUSR | S_IWGRP) == -1)
         errExit("mkfifo failed");
 
-        printf("<Server> FIFO %s created!\n", pathServerFifo);
+    printf("<Server> FIFO %s created!\n", pathServerFifo);
 
     printf("<Server> waiting for a client...\n");
     serverFIFO = open(pathServerFifo, O_RDONLY);
@@ -270,6 +299,9 @@ int createSemaphoreSet(key_t key) {
 }
 
 
+
+
+
 int main(int argc, char *argv[]) {
 
     srand(time(0));
@@ -289,17 +321,18 @@ int main(int argc, char *argv[]) {
 
     semid = createSemaphoreSet(key);
 
-    openFIFO();
 
-    //lancio processo figlio keymanager
-    pid = fork();
-    if (pid == -1)
-        printf("subprocess keymanager not created\n");
-    else if (pid == 0) {
+    //spawn process child keymanager
+    childPid = fork();
+    if (childPid == -1){
+       errExit("Child not created");
+    }
+    else if (childPid == 0) {
         printf("<Server> creates child\n");
         child();
     }
 
+    openFIFO();
 
 
 
@@ -307,6 +340,8 @@ int main(int argc, char *argv[]) {
 
     struct Request request;
     do {
+
+
         printf("<Server> waiting for a Request...\n");
         // Read a request from the FIFO
         bR = read(serverFIFO, &request, sizeof(struct Request));
